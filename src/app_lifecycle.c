@@ -228,7 +228,10 @@ bool app_init_sdl(SDL_Window** win, SDL_Renderer** renderer, TTF_Font** font,
         ERROR_LOG("Failed to load font! SDL_ttf Error: %s", TTF_GetError());
         // Try fallback font
         DEBUG_LOG("Trying fallback font...");
-        *font = TTF_OpenFont("/System/Library/Fonts/Menlo.ttc", config->font_size);
+        *font = TTF_OpenFont("/usr/share/vaixterm/res/Martian.ttf", config->font_size);
+        if (!*font) {
+            *font = TTF_OpenFont("/System/Library/Fonts/Menlo.ttc", config->font_size);
+        }
         if (!*font) {
             ERROR_LOG("Failed to load fallback font! SDL_ttf Error: %s", TTF_GetError());
             SDL_DestroyRenderer(*renderer);
@@ -379,7 +382,9 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config)
         .cached_mod_mask = -1,
         .show_special_set_name = false,
         .loaded_key_set_names = NULL,
-        .num_loaded_key_sets = 0
+        .num_loaded_key_sets = 0,
+        .grid_mode = config->osk_grid,
+        .grid_cols = 4
     };
     
     osk->key_cache = osk_key_cache_create();
@@ -396,6 +401,7 @@ bool app_init_osk(OnScreenKeyboard* osk, const Config* config)
     if (!osk->char_sets || osk->num_char_rows == 0) {
         const char* fallback_paths[] = {
             "res/qwerty.kb",
+            "/usr/share/vaixterm/res/qwerty.kb",
             "/usr/share/vaixterm/qwerty.kb",
             NULL
         };

@@ -135,6 +135,17 @@ int get_physical_modifier_mask(const OnScreenKeyboard* osk)
     return mask;
 }
 
+int osk_special_grid_column_count(int num_keys, int available_width, int min_cell_w)
+{
+    if (num_keys <= 0) return 1;
+    if (available_width < 1) return 1;
+    if (min_cell_w < 1) min_cell_w = 1;
+    int cols = available_width / min_cell_w;
+    if (cols < 1) cols = 1;
+    if (cols > num_keys) cols = num_keys;
+    return cols;
+}
+
 const SpecialKeySet* get_active_special_set(const OnScreenKeyboard* osk)
 {
     const SpecialKeySet* active_set = &osk->control_set;

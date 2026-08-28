@@ -1,0 +1,27 @@
+# GAMERCARD / Zero.2
+# Matches the handheld: matte black chassis, champagne-gold branding, ivory and grey.
+# Gold plays the same role Ubuntu purple does — directories, prompt accents, cursor.
+
+background = #000000
+foreground = #E8E4DC
+cursor     = #C9A86C
+
+# 0-7 normal
+color0  = #1A1A1A
+color1  = #B85C4A
+color2  = #8B9A6B
+color3  = #D4BC82
+color4  = #C9A86C
+color5  = #B08978
+color6  = #A8B0B8
+color7  = #E8E4DC
+
+# 8-15 bright
+color8  = #5A5A5A
+color9  = #D47868
+color10 = #A8B888
+color11 = #F0D9A0
+color12 = #D4C4A0
+color13 = #C9A890
+color14 = #D0D4D8
+color15 = #F5F2EB

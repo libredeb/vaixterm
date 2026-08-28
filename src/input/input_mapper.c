@@ -187,6 +187,48 @@ void process_direct_terminal_action(TerminalAction action, Terminal* term, OnScr
     }
 }
 
+static int osk_nav_grid_cols(const OnScreenKeyboard* osk)
+{
+    return (osk->grid_cols > 0) ? osk->grid_cols : 1;
+}
+
+static void osk_special_place_at_row_col(OnScreenKeyboard* osk, int row, int col)
+{
+    const SpecialKeySet* set = get_active_special_set(osk);
+    int n = (set && set->num_keys > 0) ? set->num_keys : 0;
+    int cols = osk_nav_grid_cols(osk);
+    if (n <= 0) {
+        osk->char_idx = 0;
+        return;
+    }
+    int last_row = (n - 1) / cols;
+    if (row < 0) row = 0;
+    if (row > last_row) row = last_row;
+    int row_start = row * cols;
+    int row_len = n - row_start;
+    if (row_len > cols) row_len = cols;
+    if (col < 0) col = 0;
+    if (col >= row_len) col = row_len - 1;
+    osk->char_idx = row_start + col;
+}
+
+static void osk_special_change_set_keep_col(OnScreenKeyboard* osk, int direction, int col)
+{
+    if (osk->num_total_special_sets > 1) {
+        osk->set_idx = (osk->set_idx + direction + osk->num_total_special_sets) % osk->num_total_special_sets;
+    }
+    const SpecialKeySet* set = get_active_special_set(osk);
+    int n = (set && set->num_keys > 0) ? set->num_keys : 0;
+    int cols = osk_nav_grid_cols(osk);
+    if (n <= 0) {
+        osk->char_idx = 0;
+        return;
+    }
+    int last_row = (n - 1) / cols;
+    int row = (direction < 0) ? last_row : 0;
+    osk_special_place_at_row_col(osk, row, col);
+}
+
 static void osk_navigate_left(OnScreenKeyboard* osk, bool* needs_render)
 {
     if (osk->mode == OSK_MODE_CHARS) {
@@ -194,6 +236,20 @@ static void osk_navigate_left(OnScreenKeyboard* osk, bool* needs_render)
         if (row && row->num_keys > 0) {
             osk->char_idx--;
             if (osk->char_idx < 0) osk->char_idx = row->num_keys - 1;
+        }
+    } else if (osk->grid_mode) {
+        const SpecialKeySet* active_set = get_active_special_set(osk);
+        int n = (active_set && active_set->num_keys > 0) ? active_set->num_keys : 0;
+        if (n > 0) {
+            int cols = osk_nav_grid_cols(osk);
+            if (osk->char_idx < 0) osk->char_idx = 0;
+            if (osk->char_idx >= n) osk->char_idx = n - 1;
+            int row = osk->char_idx / cols;
+            int row_start = row * cols;
+            int row_end = row_start + cols - 1;
+            if (row_end >= n) row_end = n - 1;
+            osk->char_idx--;
+            if (osk->char_idx < row_start) osk->char_idx = row_end;
         }
     } else {
         const SpecialKeySet* active_set = get_active_special_set(osk);
@@ -213,6 +269,20 @@ static void osk_navigate_right(OnScreenKeyboard* osk, bool* needs_render)
             osk->char_idx++;
             if (osk->char_idx >= row->num_keys) osk->char_idx = 0;
         }
+    } else if (osk->grid_mode) {
+        const SpecialKeySet* active_set = get_active_special_set(osk);
+        int n = (active_set && active_set->num_keys > 0) ? active_set->num_keys : 0;
+        if (n > 0) {
+            int cols = osk_nav_grid_cols(osk);
+            if (osk->char_idx < 0) osk->char_idx = 0;
+            if (osk->char_idx >= n) osk->char_idx = n - 1;
+            int row = osk->char_idx / cols;
+            int row_start = row * cols;
+            int row_end = row_start + cols - 1;
+            if (row_end >= n) row_end = n - 1;
+            osk->char_idx++;
+            if (osk->char_idx > row_end) osk->char_idx = row_start;
+        }
     } else {
         const SpecialKeySet* active_set = get_active_special_set(osk);
         if (active_set && active_set->num_keys > 0) {
@@ -226,11 +296,33 @@ static void osk_navigate_right(OnScreenKeyboard* osk, bool* needs_render)
 static void osk_navigate_up(OnScreenKeyboard* osk, bool* needs_render)
 {
     if (osk->mode == OSK_MODE_SPECIAL) {
-        // Cycle backwards through available key sets (no-op when only one exists)
-        if (osk->num_total_special_sets > 1) {
-            osk->set_idx = (osk->set_idx - 1 + osk->num_total_special_sets) % osk->num_total_special_sets;
+        if (osk->grid_mode) {
+            const SpecialKeySet* set = get_active_special_set(osk);
+            int n = (set && set->num_keys > 0) ? set->num_keys : 0;
+            if (n > 0) {
+                int cols = osk_nav_grid_cols(osk);
+                if (osk->char_idx < 0) osk->char_idx = 0;
+                if (osk->char_idx >= n) osk->char_idx = n - 1;
+                int row = osk->char_idx / cols;
+                int col = osk->char_idx % cols;
+                int last_row = (n - 1) / cols;
+                if (row <= 0) {
+                    if (osk->num_total_special_sets > 1) {
+                        osk_special_change_set_keep_col(osk, -1, col);
+                    } else {
+                        osk_special_place_at_row_col(osk, last_row, col);
+                    }
+                } else {
+                    osk_special_place_at_row_col(osk, row - 1, col);
+                }
+            }
+        } else {
+            // Cycle backwards through available key sets (no-op when only one exists)
+            if (osk->num_total_special_sets > 1) {
+                osk->set_idx = (osk->set_idx - 1 + osk->num_total_special_sets) % osk->num_total_special_sets;
+            }
+            osk->char_idx = 0;
         }
-        osk->char_idx = 0;
     } else {
         int num_rows = get_current_num_char_rows(osk);
         if (num_rows > 0) {
@@ -249,11 +341,33 @@ static void osk_navigate_up(OnScreenKeyboard* osk, bool* needs_render)
 static void osk_navigate_down(OnScreenKeyboard* osk, bool* needs_render)
 {
     if (osk->mode == OSK_MODE_SPECIAL) {
-        // Cycle forwards through available key sets (no-op when only one exists)
-        if (osk->num_total_special_sets > 1) {
-            osk->set_idx = (osk->set_idx + 1) % osk->num_total_special_sets;
+        if (osk->grid_mode) {
+            const SpecialKeySet* set = get_active_special_set(osk);
+            int n = (set && set->num_keys > 0) ? set->num_keys : 0;
+            if (n > 0) {
+                int cols = osk_nav_grid_cols(osk);
+                if (osk->char_idx < 0) osk->char_idx = 0;
+                if (osk->char_idx >= n) osk->char_idx = n - 1;
+                int row = osk->char_idx / cols;
+                int col = osk->char_idx % cols;
+                int last_row = (n - 1) / cols;
+                if (row >= last_row) {
+                    if (osk->num_total_special_sets > 1) {
+                        osk_special_change_set_keep_col(osk, 1, col);
+                    } else {
+                        osk_special_place_at_row_col(osk, 0, col);
+                    }
+                } else {
+                    osk_special_place_at_row_col(osk, row + 1, col);
+                }
+            }
+        } else {
+            // Cycle forwards through available key sets (no-op when only one exists)
+            if (osk->num_total_special_sets > 1) {
+                osk->set_idx = (osk->set_idx + 1) % osk->num_total_special_sets;
+            }
+            osk->char_idx = 0;
         }
-        osk->char_idx = 0;
     } else {
         int num_rows = get_current_num_char_rows(osk);
         if (num_rows > 0) {

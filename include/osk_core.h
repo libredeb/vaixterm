@@ -137,4 +137,14 @@ int get_physical_modifier_mask(const OnScreenKeyboard* osk);
  */
 const SpecialKeySet* get_active_special_set(const OnScreenKeyboard* osk);
 
+/**
+ * @brief Number of columns for wrapping a special key set into a grid.
+ *
+ * @param num_keys Number of keys in the set
+ * @param available_width Pixel width available for the grid
+ * @param min_cell_w Minimum pixel width of one cell
+ * @return int Column count (>= 1)
+ */
+int osk_special_grid_column_count(int num_keys, int available_width, int min_cell_w);
+
 #endif // OSK_CORE_H

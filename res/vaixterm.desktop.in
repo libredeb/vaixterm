@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VaixTerm
+Comment=Terminal emulator for handheld gaming devices
+Exec=@BINDIR@/vaixterm -w 720 -h 720 --osk-grid true --no-credit -s 24 -cs res/gamercard.theme
+Icon=@DATADIR@/res/vaixterm.png
+Path=@DATADIR@
+Terminal=false
+Categories=System;TerminalEmulator;

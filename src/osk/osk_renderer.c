@@ -53,23 +53,36 @@ static void draw_key(SDL_Renderer* renderer, TTF_Font* font,
     SDL_RenderDrawRect(renderer, &key_rect);
 
     if (!label) return;
+
+    SDL_Rect prev_clip;
+    SDL_RenderGetClipRect(renderer, &prev_clip);
+    SDL_bool was_clipping = SDL_RenderIsClipEnabled(renderer);
+    SDL_RenderSetClipRect(renderer, &key_rect);
+
     SDL_Color text_color = {255, 255, 255, 255};
     SDL_Surface* surface = TTF_RenderUTF8_Blended(font, label, text_color);
-    if (!surface) return;
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (texture) {
-        int text_w = surface->w;
-        int text_h = surface->h;
-        SDL_Rect text_rect = {
-            x + (w - text_w) / 2,
-            osk_y + (char_h - text_h) / 2,
-            text_w,
-            text_h
-        };
-        SDL_RenderCopy(renderer, texture, NULL, &text_rect);
-        SDL_DestroyTexture(texture);
+    if (surface) {
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+        if (texture) {
+            int text_w = surface->w;
+            int text_h = surface->h;
+            SDL_Rect text_rect = {
+                x + (w - text_w) / 2,
+                osk_y + (char_h - text_h) / 2,
+                text_w,
+                text_h
+            };
+            SDL_RenderCopy(renderer, texture, NULL, &text_rect);
+            SDL_DestroyTexture(texture);
+        }
+        SDL_FreeSurface(surface);
     }
-    SDL_FreeSurface(surface);
+
+    if (was_clipping) {
+        SDL_RenderSetClipRect(renderer, &prev_clip);
+    } else {
+        SDL_RenderSetClipRect(renderer, NULL);
+    }
 }
 
 // Render a single centered line of keys where the selected key is always
@@ -156,12 +169,169 @@ static int render_osk_line(SDL_Renderer* renderer, TTF_Font* font,
     return drawn;
 }
 
+static void osk_build_left_label(const OnScreenKeyboard* osk, char* left_label, size_t size)
+{
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        const SpecialKeySet* active_set = get_active_special_set(osk);
+        const char* name = (active_set && active_set->name) ? active_set->name : "BASE";
+        if (osk->num_total_special_sets > 1) {
+            snprintf(left_label, size, "%s [%d/%d]",
+                     name, osk->set_idx + 1, osk->num_total_special_sets);
+        } else {
+            snprintf(left_label, size, "%s", name);
+        }
+    } else {
+        snprintf(left_label, size, "R%d/%d",
+                 osk->current_char_row + 1, get_current_num_char_rows(osk));
+    }
+}
+
+static void osk_draw_left_label(SDL_Renderer* renderer, TTF_Font* font,
+                               const char* left_label, int osk_y, int bar_h)
+{
+    if (!left_label || left_label[0] == '\0') return;
+    SDL_Color text_color = {200, 200, 200, 255};
+    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, left_label, text_color);
+    if (!surface) return;
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (texture) {
+        SDL_Rect text_rect = {
+            OSK_KEY_PAD_X / 2,
+            osk_y + (bar_h - surface->h) / 2,
+            surface->w,
+            surface->h
+        };
+        SDL_RenderCopy(renderer, texture, NULL, &text_rect);
+        SDL_DestroyTexture(texture);
+    }
+    SDL_FreeSurface(surface);
+}
+
+static int special_set_min_cell_w(TTF_Font* font, const SpecialKeySet* set)
+{
+    int max_w = 0;
+    if (!set || !set->keys) return 24;
+    for (int i = 0; i < set->num_keys; i++) {
+        int w = measure_key_width(font, set->keys[i].display_name);
+        if (w > max_w) max_w = w;
+    }
+    if (max_w < 24) max_w = 24;
+    return max_w;
+}
+
+static void render_osk_grid(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk,
+                            const Terminal* term, int win_w, int win_h, int char_w, int char_h,
+                            const Config* config)
+{
+    int osk_alpha = config ? config->osk_alpha : 220;
+    int cell_h = (config && config->osk_bar_height > 0) ? config->osk_bar_height : char_h;
+    const int pad = 4;
+
+    char left_label[64] = {0};
+    osk_build_left_label(osk, left_label, sizeof(left_label));
+
+    int avail_left = pad;
+    int avail_right = win_w - pad;
+    int avail_w = avail_right - avail_left;
+    if (avail_w < 1) avail_w = 1;
+
+    int grid_rows = 1;
+    int special_cols = 1;
+    const SpecialKeySet* special_set = NULL;
+
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        special_set = get_active_special_set(osk);
+        int n = (special_set && special_set->keys) ? special_set->num_keys : 0;
+        int min_cell = special_set_min_cell_w(font, special_set);
+        special_cols = osk_special_grid_column_count(n, avail_w, min_cell);
+        osk->grid_cols = special_cols;
+        if (n > 0) {
+            grid_rows = (n + special_cols - 1) / special_cols;
+        }
+        if (grid_rows < 1) grid_rows = 1;
+    } else {
+        grid_rows = get_current_num_char_rows(osk);
+        if (grid_rows < 1) grid_rows = 1;
+    }
+
+    int header_h = cell_h;
+    int total_h = header_h + grid_rows * cell_h;
+    if (total_h > win_h && grid_rows > 0) {
+        int remain = win_h - header_h;
+        if (remain < 8) remain = 8;
+        cell_h = remain / grid_rows;
+        if (cell_h < 8) cell_h = 8;
+        total_h = header_h + grid_rows * cell_h;
+        if (total_h > win_h) total_h = win_h;
+    }
+
+    int osk_y = get_osk_y_position(osk, term, win_h, total_h);
+
+    SDL_Rect bg_rect = {0, osk_y, win_w, total_h};
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, osk_alpha);
+    SDL_RenderFillRect(renderer, &bg_rect);
+
+    osk_draw_left_label(renderer, font, left_label, osk_y, header_h);
+    render_modifier_indicators(renderer, font, osk, win_w, osk_y, header_h, char_w);
+
+    int keys_y = osk_y + header_h;
+    SDL_Color key_bg = {60, 60, 60, 255};
+
+    if (osk->mode == OSK_MODE_SPECIAL) {
+        int n = (special_set && special_set->keys) ? special_set->num_keys : 0;
+        if (n > 0 && special_cols > 0) {
+            int cell_w = avail_w / special_cols;
+            if (cell_w < 1) cell_w = 1;
+            for (int i = 0; i < n; i++) {
+                int r = i / special_cols;
+                int c = i % special_cols;
+                int x = avail_left + c * cell_w;
+                int y = keys_y + r * cell_h;
+                bool toggled = is_key_toggled(term, osk, &special_set->keys[i]);
+                draw_key(renderer, font, special_set->keys[i].display_name,
+                         x, y, cell_w, cell_h,
+                         i == osk->char_idx, toggled, key_bg);
+            }
+        }
+    } else {
+        int num_rows = get_current_num_char_rows(osk);
+        int max_keys = 1;
+        for (int r = 0; r < num_rows; r++) {
+            const SpecialKeySet* row = osk_get_effective_row_ptr(osk, r);
+            if (row && row->num_keys > max_keys) max_keys = row->num_keys;
+        }
+        int cell_w = avail_w / max_keys;
+        if (cell_w < 1) cell_w = 1;
+
+        for (int r = 0; r < num_rows; r++) {
+            const SpecialKeySet* row = osk_get_effective_row_ptr(osk, r);
+            if (!row || !row->keys || row->num_keys <= 0) continue;
+            int row_w = row->num_keys * cell_w;
+            int x0 = avail_left + (avail_w - row_w) / 2;
+            int y = keys_y + r * cell_h;
+            for (int i = 0; i < row->num_keys; i++) {
+                bool selected = (r == osk->current_char_row && i == osk->char_idx);
+                bool toggled = is_key_toggled(term, osk, &row->keys[i]);
+                draw_key(renderer, font, row->keys[i].display_name,
+                         x0 + i * cell_w, y, cell_w, cell_h,
+                         selected, toggled, key_bg);
+            }
+        }
+    }
+}
+
 void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, const Terminal* term, 
                 int win_w, int win_h, int char_w, int char_h, const Config* config)
 {
     if (!renderer || !font || !osk || !term || win_w <= 0 || win_h <= 0 || char_h <= 0) {
         ERROR_LOG("Invalid parameters: renderer=%p, font=%p, osk=%p, term=%p, win_w=%d, win_h=%d, char_h=%d",
                   (void*)renderer, (void*)font, (void*)osk, (void*)term, win_w, win_h, char_h);
+        return;
+    }
+
+    osk->grid_mode = config && config->osk_grid;
+    if (osk->grid_mode) {
+        render_osk_grid(renderer, font, osk, term, win_w, win_h, char_w, char_h, config);
         return;
     }
 
@@ -181,19 +351,7 @@ void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, c
     int indicator_w = get_modifier_indicators_width(font, char_w);
     int left_gutter = 0;
     char left_label[64] = {0};
-    if (osk->mode == OSK_MODE_SPECIAL) {
-        const SpecialKeySet* active_set = get_active_special_set(osk);
-        const char* name = (active_set && active_set->name) ? active_set->name : "BASE";
-        if (osk->num_total_special_sets > 1) {
-            snprintf(left_label, sizeof(left_label), "%s [%d/%d]",
-                     name, osk->set_idx + 1, osk->num_total_special_sets);
-        } else {
-            snprintf(left_label, sizeof(left_label), "%s", name);
-        }
-    } else {
-        snprintf(left_label, sizeof(left_label), "R%d/%d",
-                 osk->current_char_row + 1, get_current_num_char_rows(osk));
-    }
+    osk_build_left_label(osk, left_label, sizeof(left_label));
     int label_w = 0;
     TTF_SizeUTF8(font, left_label, &label_w, NULL);
     left_gutter = label_w + OSK_KEY_PAD_X;
@@ -205,25 +363,7 @@ void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, c
     int avail_left = left_gutter;
     int avail_right = win_w - indicator_w;
 
-    // Draw the left label.
-    if (left_gutter > 0) {
-        SDL_Color text_color = {200, 200, 200, 255};
-        SDL_Surface* surface = TTF_RenderUTF8_Blended(font, left_label, text_color);
-        if (surface) {
-            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-            if (texture) {
-                SDL_Rect text_rect = {
-                    OSK_KEY_PAD_X / 2,
-                    osk_y + (bar_h - surface->h) / 2,
-                    surface->w,
-                    surface->h
-                };
-                SDL_RenderCopy(renderer, texture, NULL, &text_rect);
-                SDL_DestroyTexture(texture);
-            }
-            SDL_FreeSurface(surface);
-        }
-    }
+    osk_draw_left_label(renderer, font, left_label, osk_y, bar_h);
 
     if (osk->mode == OSK_MODE_SPECIAL) {
         const SpecialKeySet* active_set = get_active_special_set(osk);

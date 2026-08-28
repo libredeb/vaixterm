@@ -6,10 +6,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 
 #include "config_manager.h"
 #include "error_codes.h"
 #include "config.h"
+
+static bool parse_bool_value(const char* value, bool* out)
+{
+    if (!value || !out) return false;
+    if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0 || strcmp(value, "yes") == 0) {
+        *out = true;
+        return true;
+    }
+    if (strcmp(value, "false") == 0 || strcmp(value, "0") == 0 || strcmp(value, "no") == 0) {
+        *out = false;
+        return true;
+    }
+    return false;
+}
 
 /**
  * @brief Initializes a Config structure with default values.
@@ -33,6 +49,7 @@ void config_init_defaults(Config* config)
     config->osk_layout_path = NULL;
     config->osk_alpha = 220;
     config->osk_bar_height = 0;
+    config->osk_grid = false;
     config->key_sets = NULL;
     config->num_key_sets = 0;
 }
@@ -165,6 +182,16 @@ void config_parse_args(int argc, char* argv[], Config* config)
         } else if (strcmp(argv[i], "--osk-height") == 0 && i + 1 < argc) {
             config->osk_bar_height = atoi(argv[++i]);
             if (config->osk_bar_height < 8) config->osk_bar_height = 8;
+        } else if (strcmp(argv[i], "--osk-grid") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--osk-grid requires true or false\n");
+                exit(1);
+            }
+            const char* v = argv[++i];
+            if (!parse_bool_value(v, &config->osk_grid)) {
+                fprintf(stderr, "Invalid --osk-grid value: %s (use true or false)\n", v);
+                exit(1);
+            }
         } else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
             fprintf(stdout, "vaixterm %s\n", VERSION);
             exit(0);
@@ -205,9 +232,11 @@ void config_print_help(const char* program_name)
     fprintf(stdout, "  --osk-layout <path>        Use a custom OSK layout file.\n");
     fprintf(stdout, "  --osk-alpha <0-255>        OSK bar transparency (default: 220).\n");
     fprintf(stdout, "  --osk-height <pixels>      OSK bar height in pixels (default: char height).\n");
+    fprintf(stdout, "  --osk-grid <true|false>    Render OSK as a 2D grid (default: false).\n");
     fprintf(stdout, "  key_set=[+-]<path>         Config file equivalent of --key-set.\n");
     fprintf(stdout, "  osk_alpha=<0-255>          Config file equivalent of --osk-alpha.\n");
     fprintf(stdout, "  osk_height=<pixels>        Config file equivalent of --osk-height.\n");
+    fprintf(stdout, "  osk_grid=<true|false>      Config file equivalent of --osk-grid.\n");
     fprintf(stdout, "  --version                  Show version and exit.\n");
 }
 
@@ -358,6 +387,13 @@ bool config_load_from_file(Config* config, const char* explicit_path)
         } else if (strcmp(key, "osk_height") == 0) {
             config->osk_bar_height = atoi(value);
             if (config->osk_bar_height < 8) config->osk_bar_height = 8;
+        } else if (strcmp(key, "osk_grid") == 0) {
+            bool parsed = false;
+            if (!parse_bool_value(value, &parsed)) {
+                WARN_LOG("Invalid osk_grid value '%s', using false", value);
+                parsed = false;
+            }
+            config->osk_grid = parsed;
         } else if (strcmp(key, "key_set") == 0) {
             bool load = true;
             const char* path = value;

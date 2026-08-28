@@ -170,6 +170,7 @@ typedef struct {
     // OSK appearance
     int osk_alpha;          // 0-255, default 220
     int osk_bar_height;     // pixels, 0 = use char_h
+    bool osk_grid;          // false = tape (default), true = 2D grid
 } Config;
 
 // --- On-Screen Keyboard ---
@@ -276,6 +277,11 @@ typedef struct {
     // Available dynamic key sets
     char** available_sets;
     int num_available_sets;
+
+    // Grid layout (--osk-grid). grid_cols is the special-mode wrap width
+    // computed by the renderer so D-pad navigation matches what is drawn.
+    bool grid_mode;
+    int grid_cols;
 } OnScreenKeyboard;
 
 // --- Internal Commands ---

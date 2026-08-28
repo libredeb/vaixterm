@@ -100,7 +100,14 @@ else
   BUILD_MODE := cross
 endif
 
- .PHONY: all clean test
+# Install paths (override with e.g. make PREFIX=/usr/local install)
+PREFIX ?= /usr
+DESTDIR ?=
+BINDIR ?= $(PREFIX)/bin
+DATADIR ?= $(PREFIX)/share/vaixterm
+DESKTOPDIR ?= $(PREFIX)/share/applications
+
+.PHONY: all clean test install uninstall
 all: $(TARGET)
 
 # Headless tests (no visible SDL window needed).
@@ -152,3 +159,24 @@ clean:
 	@echo "--- Cleaning up ---"
 	rm -f $(TARGET)
 	rm -rf $(TARGET).dSYM
+
+install: $(TARGET)
+	@echo "--- Installing to $(DESTDIR)$(PREFIX) ---"
+	install -d "$(DESTDIR)$(BINDIR)"
+	install -d "$(DESTDIR)$(DATADIR)/res"
+	install -d "$(DESTDIR)$(DESKTOPDIR)"
+	install -m 755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	cp -R res/. "$(DESTDIR)$(DATADIR)/res/"
+	rm -f "$(DESTDIR)$(DATADIR)/res/vaixterm.desktop.in"
+	sed -e 's|@BINDIR@|$(BINDIR)|g' \
+	    -e 's|@DATADIR@|$(DATADIR)|g' \
+	    res/vaixterm.desktop.in > "$(DESTDIR)$(DESKTOPDIR)/vaixterm.desktop"
+	chmod 644 "$(DESTDIR)$(DESKTOPDIR)/vaixterm.desktop"
+	@echo "--- Install complete ---"
+
+uninstall:
+	@echo "--- Uninstalling from $(DESTDIR)$(PREFIX) ---"
+	rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	rm -f "$(DESTDIR)$(DESKTOPDIR)/vaixterm.desktop"
+	rm -rf "$(DESTDIR)$(DATADIR)"
+	@echo "--- Uninstall complete ---"
