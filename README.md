@@ -27,26 +27,35 @@ VaixTerm combines the power of a standard terminal with features tailored for co
 
 ### Build dependencies
 
-VaixTerm needs a C compiler, `make`, `pkg-config`/`sdl2-config`, SDL2, SDL2_ttf, SDL2_image, and libvterm.
+VaixTerm needs a C compiler, `make`, `pkg-config`/`sdl2-config`, SDL2, SDL2_ttf, SDL2_image, and **wget or curl** (to fetch vendored libvterm).
 
 On **Debian 12 Bookworm** (including 64-bit ARM handhelds):
 
 ```bash
-sudo apt install build-essential pkg-config \
+sudo apt install build-essential pkg-config wget \
   libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev
 ```
 
-**libvterm** is optional as a system package. If `vendor/libvterm/src/vterm.c` is present, the Makefile compiles that copy. Otherwise it links against the system library:
+### Compile (default: vendored libvterm 0.3.3)
 
-```bash
-sudo apt install libvterm-dev
-```
-
-### Compile
+`make` downloads libvterm 0.3.3 into `vendor/libvterm/` if it is missing, then compiles it into the binary. You do **not** need `libvterm-dev`.
 
 ```bash
 make
 ```
+
+The build log should say `libvterm=vendored`. Re-fetch from scratch with `make distclean && make`.
+
+### Compile with system libvterm
+
+To link against the distro library instead (Debian 12 ships **0.1.4**; the Makefile probes that older API):
+
+```bash
+sudo apt install libvterm-dev
+make USE_SYSTEM_VTERM=1
+```
+
+The build log should say `libvterm=system`.
 
 Cross-compilation with a Buildroot SDK is supported by setting `BUILDROOT_HOST_DIR` (see the Makefile).
 

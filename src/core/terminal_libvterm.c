@@ -233,6 +233,7 @@ static int screen_sb_popline(int cols, VTermScreenCell* cells, void* user)
     return sb_pop(&backend->sb, cells) ? 1 : 0;
 }
 
+#ifdef VTERM_HAS_SB_CLEAR
 static int screen_sb_clear_func(void* user)
 {
     Terminal* term = (Terminal*)user;
@@ -240,6 +241,7 @@ static int screen_sb_clear_func(void* user)
     if (backend) sb_clear(&backend->sb);
     return 1;
 }
+#endif
 
 static void output_callback(const char* s, size_t len, void* user)
 {
@@ -262,7 +264,9 @@ static const VTermScreenCallbacks screen_callbacks = {
     .resize = screen_resize,
     .sb_pushline = screen_sb_pushline,
     .sb_popline = screen_sb_popline,
+#ifdef VTERM_HAS_SB_CLEAR
     .sb_clear = screen_sb_clear_func,
+#endif
 };
 
 bool terminal_libvterm_init(Terminal* term, int cols, int rows)
@@ -362,15 +366,32 @@ void terminal_libvterm_resize(Terminal* term, int rows, int cols)
     vterm_screen_flush_damage(backend->screen);
 }
 
+static void sdl_to_vterm_color(SDL_Color sdl, VTermColor* out)
+{
+#ifdef VTERM_HAS_COLOR_RGB_UNION
+    vterm_color_rgb(out, sdl.r, sdl.g, sdl.b);
+#else
+    out->red = sdl.r;
+    out->green = sdl.g;
+    out->blue = sdl.b;
+#endif
+}
+
 void terminal_libvterm_set_default_colors(Terminal* term, SDL_Color fg, SDL_Color bg)
 {
     if (!term || !term->backend) return;
     LibVtermBackend* backend = (LibVtermBackend*)term->backend;
     VTermColor vfg, vbg;
-    vterm_color_rgb(&vfg, fg.r, fg.g, fg.b);
-    vterm_color_rgb(&vbg, bg.r, bg.g, bg.b);
+    sdl_to_vterm_color(fg, &vfg);
+    sdl_to_vterm_color(bg, &vbg);
+#ifdef VTERM_HAS_STATE_COLOR_POINTERS
     vterm_state_set_default_colors(backend->state, &vfg, &vbg);
+#else
+    vterm_state_set_default_colors(backend->state, vfg, vbg);
+#endif
+#ifdef VTERM_HAS_SCREEN_SET_DEFAULT_COLORS
     vterm_screen_set_default_colors(backend->screen, &vfg, &vbg);
+#endif
     term->default_fg = fg;
     term->default_bg = bg;
 }
@@ -380,8 +401,12 @@ void terminal_libvterm_set_palette_color(Terminal* term, int index, SDL_Color co
     if (!term || !term->backend || index < 0 || index >= 256) return;
     LibVtermBackend* backend = (LibVtermBackend*)term->backend;
     VTermColor vcol;
-    vterm_color_rgb(&vcol, color.r, color.g, color.b);
+    sdl_to_vterm_color(color, &vcol);
+#ifdef VTERM_HAS_STATE_COLOR_POINTERS
     vterm_state_set_palette_color(backend->state, index, &vcol);
+#else
+    vterm_state_set_palette_color(backend->state, index, vcol);
+#endif
     term->palette[index] = color;
 }
 
@@ -415,17 +440,26 @@ static void convert_cell_to_glyph(VTermScreen* screen, const VTermScreenCell* ce
     g->width = (cell->width == 2) ? 2 : 1;
 
     VTermColor fg = cell->fg;
+    VTermColor bg = cell->bg;
+#ifdef VTERM_HAS_COLOR_RGB_UNION
     vterm_screen_convert_color_to_rgb(screen, &fg);
     g->fg.r = fg.rgb.red;
     g->fg.g = fg.rgb.green;
     g->fg.b = fg.rgb.blue;
-    g->fg.a = 255;
-
-    VTermColor bg = cell->bg;
     vterm_screen_convert_color_to_rgb(screen, &bg);
     g->bg.r = bg.rgb.red;
     g->bg.g = bg.rgb.green;
     g->bg.b = bg.rgb.blue;
+#else
+    (void)screen;
+    g->fg.r = fg.red;
+    g->fg.g = fg.green;
+    g->fg.b = fg.blue;
+    g->bg.r = bg.red;
+    g->bg.g = bg.green;
+    g->bg.b = bg.blue;
+#endif
+    g->fg.a = 255;
     g->bg.a = 255;
 
     g->attributes = 0;

@@ -10,7 +10,11 @@ SRCS = src/main.c src/app_lifecycle.c src/event_handler.c src/font_manager.c src
        src/utils/error_codes.c
 TARGET = vaixterm
 
-# Vendored libvterm (downloaded by CI or manually into vendor/libvterm/)
+# libvterm: vendored 0.3.3 by default. Use the distro package with:
+#   make USE_SYSTEM_VTERM=1
+USE_SYSTEM_VTERM ?= 0
+VTERM_VERSION ?= 0.3.3
+VTERM_TARBALL_URL ?= http://archive.ubuntu.com/ubuntu/pool/universe/libv/libvterm/libvterm_$(VTERM_VERSION).orig.tar.gz
 VTERM_DIR = vendor/libvterm
 VTERM_SRCS = $(VTERM_DIR)/src/vterm.c $(VTERM_DIR)/src/keyboard.c \
              $(VTERM_DIR)/src/mouse.c $(VTERM_DIR)/src/parser.c \
@@ -37,19 +41,19 @@ NATIVE_CFLAGS = -Wall -Wextra -O2 -g \
                 -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 \
                 -fvisibility=hidden -fno-stack-check
 
-# libvterm flags: vendored source if present, else system package
-ifneq ($(wildcard $(VTERM_DIR)/src/vterm.c),)
+# libvterm flags: vendored 0.3.3 by default, system package if USE_SYSTEM_VTERM=1
+ifeq ($(USE_SYSTEM_VTERM),1)
+  ALL_SRCS = $(SRCS)
+  VTERM_CFLAGS = $(shell pkg-config --cflags vterm 2>/dev/null || echo)
+  VTERM_LDFLAGS = -lvterm
+  VTERM_MODE := system
+else
   ALL_SRCS = $(SRCS) $(VTERM_SRCS)
   VTERM_CFLAGS = -I$(VTERM_DIR)/include -I$(VTERM_DIR)/src \
                  -Wno-unused-parameter -Wno-missing-field-initializers \
                  -Wno-sign-compare -Wno-implicit-fallthrough -Wno-old-style-declaration
   VTERM_LDFLAGS =
   VTERM_MODE := vendored
-else
-  ALL_SRCS = $(SRCS)
-  VTERM_CFLAGS = $(shell pkg-config --cflags vterm 2>/dev/null || echo)
-  VTERM_LDFLAGS = -lvterm
-  VTERM_MODE := system
 endif
 
 NATIVE_CFLAGS += $(VTERM_CFLAGS)
@@ -100,6 +104,31 @@ else
   BUILD_MODE := cross
 endif
 
+# Optional libvterm APIs: Debian 12 Bookworm ships 0.1.4 (no sb_clear /
+# vterm_screen_set_default_colors, VTermColor is .red/.green/.blue).
+# libvterm 0.3.x (vendored in CI) has the newer tagged-union colour API.
+ifeq ($(VTERM_MODE),vendored)
+  VTERM_API_CFLAGS := -DVTERM_HAS_SB_CLEAR -DVTERM_HAS_SCREEN_SET_DEFAULT_COLORS -DVTERM_HAS_COLOR_RGB_UNION -DVTERM_HAS_STATE_COLOR_POINTERS
+else
+  VTERM_PROBE_FLAGS := $(VTERM_CFLAGS)
+  ifeq ($(BUILD_MODE),cross)
+    VTERM_PROBE_FLAGS += --sysroot=$(SYSROOT)
+  endif
+  ifeq ($(shell printf '\#include <vterm.h>\nstatic const VTermScreenCallbacks c = { .sb_clear = 0 };\n' | $(CC) $(VTERM_PROBE_FLAGS) -fsyntax-only -x c - 2>/dev/null && echo yes),yes)
+    VTERM_API_CFLAGS += -DVTERM_HAS_SB_CLEAR
+  endif
+  ifeq ($(shell printf '\#include <vterm.h>\nvoid f(VTermScreen *s, VTermColor *c) { vterm_screen_set_default_colors(s, c, c); }\n' | $(CC) $(VTERM_PROBE_FLAGS) -Werror=implicit-function-declaration -fsyntax-only -x c - 2>/dev/null && echo yes),yes)
+    VTERM_API_CFLAGS += -DVTERM_HAS_SCREEN_SET_DEFAULT_COLORS
+  endif
+  ifeq ($(shell printf '\#include <vterm.h>\nvoid f(VTermState *s, VTermColor *c) { vterm_state_set_default_colors(s, c, c); }\n' | $(CC) $(VTERM_PROBE_FLAGS) -Werror=incompatible-pointer-types -fsyntax-only -x c - 2>/dev/null && echo yes),yes)
+    VTERM_API_CFLAGS += -DVTERM_HAS_STATE_COLOR_POINTERS
+  endif
+  ifeq ($(shell printf '\#include <vterm.h>\nint f(VTermColor c) { return c.rgb.red; }\n' | $(CC) $(VTERM_PROBE_FLAGS) -fsyntax-only -x c - 2>/dev/null && echo yes),yes)
+    VTERM_API_CFLAGS += -DVTERM_HAS_COLOR_RGB_UNION
+  endif
+endif
+CFLAGS += $(VTERM_API_CFLAGS)
+
 # Install paths (override with e.g. make PREFIX=/usr/local install)
 PREFIX ?= /usr
 DESTDIR ?=
@@ -107,8 +136,39 @@ BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share/vaixterm
 DESKTOPDIR ?= $(PREFIX)/share/applications
 
-.PHONY: all clean test install uninstall
+.PHONY: all clean distclean test install uninstall vendor-libvterm
 all: $(TARGET)
+
+# Fetch libvterm 0.3.3 into vendor/ (no-op if already present).
+ifneq ($(USE_SYSTEM_VTERM),1)
+vendor-libvterm: $(VTERM_DIR)/.fetched
+
+$(VTERM_SRCS): $(VTERM_DIR)/.fetched
+
+$(VTERM_DIR)/.fetched:
+	@if [ -f "$(VTERM_DIR)/src/vterm.c" ]; then touch "$(VTERM_DIR)/.fetched"; exit 0; fi
+	@echo "--- Fetching libvterm $(VTERM_VERSION) into $(VTERM_DIR) ---"
+	@tmpdir=`mktemp -d`; \
+	if command -v wget >/dev/null 2>&1; then \
+		wget -q "$(VTERM_TARBALL_URL)" -O "$$tmpdir/libvterm.tar.gz"; \
+	elif command -v curl >/dev/null 2>&1; then \
+		curl -fsSL "$(VTERM_TARBALL_URL)" -o "$$tmpdir/libvterm.tar.gz"; \
+	else \
+		echo "Need wget or curl to download libvterm"; \
+		rm -rf "$$tmpdir"; \
+		exit 1; \
+	fi; \
+	tar xzf "$$tmpdir/libvterm.tar.gz" -C "$$tmpdir"; \
+	mkdir -p "$(VTERM_DIR)"; \
+	cp -R "$$tmpdir"/libvterm-$(VTERM_VERSION)/src "$(VTERM_DIR)/src"; \
+	cp -R "$$tmpdir"/libvterm-$(VTERM_VERSION)/include "$(VTERM_DIR)/include"; \
+	rm -rf "$$tmpdir"; \
+	touch "$(VTERM_DIR)/.fetched"
+	@echo "--- libvterm $(VTERM_VERSION) ready ---"
+else
+vendor-libvterm:
+	@echo "USE_SYSTEM_VTERM=1: not fetching vendored libvterm"
+endif
 
 # Headless tests (no visible SDL window needed).
 test: tests/test_osk tests/test_scrollback tests/test_dirty
@@ -159,6 +219,9 @@ clean:
 	@echo "--- Cleaning up ---"
 	rm -f $(TARGET)
 	rm -rf $(TARGET).dSYM
+
+distclean: clean
+	rm -rf vendor/libvterm
 
 install: $(TARGET)
 	@echo "--- Installing to $(DESTDIR)$(PREFIX) ---"

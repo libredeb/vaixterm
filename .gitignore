@@ -3,3 +3,4 @@ vaixterm
 *.dSYM
 .DS_Store
 vaixterm_profile
+vendor/
