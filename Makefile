@@ -51,7 +51,8 @@ else
   ALL_SRCS = $(SRCS) $(VTERM_SRCS)
   VTERM_CFLAGS = -I$(VTERM_DIR)/include -I$(VTERM_DIR)/src \
                  -Wno-unused-parameter -Wno-missing-field-initializers \
-                 -Wno-sign-compare -Wno-implicit-fallthrough -Wno-old-style-declaration
+                 -Wno-sign-compare -Wno-implicit-fallthrough -Wno-old-style-declaration \
+                 -Wno-maybe-uninitialized
   VTERM_LDFLAGS =
   VTERM_MODE := vendored
 endif
@@ -73,9 +74,9 @@ ifeq ($(UNAME_S),Darwin)
                     -L/opt/homebrew/lib \
                     -L/usr/local/lib
 else
-    # Linux/other
+    # Linux/other — skip LTO on native builds (slow to link on small ARM SoCs)
     NATIVE_CFLAGS += -fdata-sections -ffunction-sections
-    NATIVE_LDFLAGS = -flto -Wl,--gc-sections -Wl,--as-needed `sdl2-config --libs` -lSDL2_ttf -lSDL2_image -lm $(VTERM_LDFLAGS) -no-pie
+    NATIVE_LDFLAGS = -Wl,--gc-sections -Wl,--as-needed `sdl2-config --libs` -lSDL2_ttf -lSDL2_image -lm $(VTERM_LDFLAGS) -no-pie
 endif
 
 # Cross-compile (Buildroot) defaults (set only if BUILDROOT_HOST_DIR is set)

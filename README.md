@@ -44,7 +44,7 @@ sudo apt install build-essential pkg-config wget \
 make
 ```
 
-The build log should say `libvterm=vendored`. Re-fetch from scratch with `make distclean && make`.
+The build log should say `libvterm=vendored`. `make clean` keeps `vendor/` so the next build does not download again. Re-fetch from scratch with `make distclean && make`.
 
 ### Compile with system libvterm
 
