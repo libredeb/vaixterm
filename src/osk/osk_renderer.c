@@ -58,44 +58,63 @@ static int measure_key_width(TTF_Font* font, const char* label)
 static int max_int(int a, int b) { return a > b ? a : b; }
 static int min_int(int a, int b) { return a < b ? a : b; }
 
+// Compact glyph box centered in the key. Size follows key height (like a
+// letter), not key width, so wide keys such as Space keep the icon in the
+// middle instead of stretching it.
+static SDL_Rect centered_symbol_rect(SDL_Rect key, int width_num, int width_den)
+{
+    int gh = max_int(8, (key.h * 11) / 16);
+    int gw = (gh * width_num) / width_den;
+    if (gw < 8) gw = 8;
+    int max_w = max_int(8, key.w - 6);
+    int max_h = max_int(8, key.h - 6);
+    if (gw > max_w) {
+        gh = (gh * max_w) / gw;
+        gw = max_w;
+    }
+    if (gh > max_h) {
+        gw = (gw * max_h) / gh;
+        gh = max_h;
+    }
+    SDL_Rect r = {
+        key.x + (key.w - gw) / 2,
+        key.y + (key.h - gh) / 2,
+        gw,
+        gh
+    };
+    return r;
+}
+
 static void draw_shift_symbol(SDL_Renderer* renderer, SDL_Rect key_rect)
 {
-    int pad = max_int(2, min_int(key_rect.w, key_rect.h) / 6);
-    int x = key_rect.x + pad;
-    int y = key_rect.y + pad;
-    int w = key_rect.w - pad * 2;
-    int h = key_rect.h - pad * 2;
-    if (w < 4 || h < 4) return;
+    SDL_Rect box = centered_symbol_rect(key_rect, 1, 1);
+    if (box.w < 4 || box.h < 4) return;
 
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    int mid_x = x + w / 2;
-    int head_h = max_int(3, (h * 55) / 100);
+    int mid_x = box.x + box.w / 2;
+    int head_h = max_int(3, (box.h * 55) / 100);
     for (int row = 0; row < head_h; row++) {
-        int half = (row * (w / 2)) / head_h;
-        SDL_Rect line = {mid_x - half, y + row, half * 2 + 1, 1};
+        int half = (row * (box.w / 2)) / head_h;
+        SDL_Rect line = {mid_x - half, box.y + row, half * 2 + 1, 1};
         SDL_RenderFillRect(renderer, &line);
     }
-    int stem_w = max_int(2, w / 4);
+    int stem_w = max_int(2, box.w / 4);
     int stem_x = mid_x - stem_w / 2;
-    int stem_y = y + (head_h * 70) / 100;
-    SDL_Rect stem = {stem_x, stem_y, stem_w, y + h - stem_y};
+    int stem_y = box.y + (head_h * 70) / 100;
+    SDL_Rect stem = {stem_x, stem_y, stem_w, box.y + box.h - stem_y};
     if (stem.h > 0) SDL_RenderFillRect(renderer, &stem);
 }
 
 static void draw_space_symbol(SDL_Renderer* renderer, SDL_Rect key_rect)
 {
-    int pad = max_int(2, min_int(key_rect.w, key_rect.h) / 5);
-    int x = key_rect.x + pad;
-    int y = key_rect.y + pad + key_rect.h / 8;
-    int w = key_rect.w - pad * 2;
-    int h = key_rect.h - pad * 2 - key_rect.h / 8;
-    if (w < 4 || h < 4) return;
+    SDL_Rect box = centered_symbol_rect(key_rect, 5, 4);
+    if (box.w < 4 || box.h < 4) return;
 
-    int t = max_int(2, min_int(w, h) / 8);
+    int t = max_int(2, min_int(box.w, box.h) / 6);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_Rect left = {x, y, t, h};
-    SDL_Rect bottom = {x, y + h - t, w, t};
-    SDL_Rect right = {x + w - t, y, t, h};
+    SDL_Rect left = {box.x, box.y, t, box.h};
+    SDL_Rect bottom = {box.x, box.y + box.h - t, box.w, t};
+    SDL_Rect right = {box.x + box.w - t, box.y, t, box.h};
     SDL_RenderFillRect(renderer, &left);
     SDL_RenderFillRect(renderer, &bottom);
     SDL_RenderFillRect(renderer, &right);
