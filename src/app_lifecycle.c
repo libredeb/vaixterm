@@ -285,6 +285,14 @@ void app_run_child_process(const Config* config)
 
     setenv("SHELL", shell_path, 1);
 
+    const char* home = getenv("HOME");
+    if ((!home || home[0] == '\0') && pw)
+        home = pw->pw_dir;
+    if (home && home[0] != '\0') {
+        if (chdir(home) != 0)
+            fprintf(stderr, "chdir to home '%s' failed: %s\n", home, strerror(errno));
+    }
+
     const char *shell_name = strrchr(shell_path, '/');
     if (shell_name) {
         shell_name++;
