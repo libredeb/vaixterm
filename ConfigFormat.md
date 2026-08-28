@@ -37,7 +37,8 @@ Special tokens, enclosed in curly braces `{}`, represent common special keys or 
 
 *   **Input Keys:**
     *   `{ENTER}`: Enter key (`\r`)
-    *   `{SPACE}`: Space key (` `)
+    *   `{SPACE}`: Space key (` `). Displayed as `Space`.
+    *   `{SPACE_S}`: Same as `{SPACE}`, displayed as the open-box symbol `␣`.
     *   `{TAB}`: Tab key (`\t`)
     *   `{BS}`: Backspace key (sends `\x7f`)
     *   `{DEL}`: Delete key (sends `\x1b[3~`)
@@ -48,7 +49,8 @@ Special tokens, enclosed in curly braces `{}`, represent common special keys or 
 *   **Function Keys:**
     *   `{F1}` through `{F12}`: Function keys
 *   **OSK Modifiers:**
-    *   `{SHIFT}`: Toggles the OSK's one-shot Shift modifier.
+    *   `{SHIFT}`: Toggles the OSK's one-shot Shift modifier. Displayed as `Shift`.
+    *   `{SHIFT_S}`: Same as `{SHIFT}`, displayed as the up-arrow symbol `⇧`.
     *   `{CTRL}`: Toggles the OSK's one-shot Ctrl modifier.
     *   `{ALT}`: Toggles the OSK's one-shot Alt modifier.
     *   `{GUI}`: Toggles the OSK's one-shot GUI (Windows/Command) modifier.
@@ -57,7 +59,7 @@ Special tokens, enclosed in curly braces `{}`, represent common special keys or 
         *   If a key position in a specific modifier layer (e.g., `[SHIFT]`) contains `{N/A}`, the OSK will fall back to the key defined at the same position in the `[default]` layer.
         *   If an entire row is just `"{DEFAULT}"`, that entire row will be inherited from the corresponding row in the `[default]` layer.
 
-**Note:** Some tokens have a shorter display name on the OSK button. For example, `{ENTER}` is displayed as `ENT`, `{SPACE}` is `Space`, and `{SHIFT}` is `Shift`.
+**Note:** Some tokens have a shorter display name on the OSK button. For example, `{ENTER}` is displayed as `ENT`, `{SPACE}` is `Space`, and `{SHIFT}` is `Shift`. Use `{SHIFT_S}` / `{SPACE_S}` for compact symbol labels (`⇧` / `␣`) with the same actions.
 
 ### Guidelines & Best Practices
 

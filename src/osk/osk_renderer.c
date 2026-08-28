@@ -24,16 +24,86 @@ static int s_max_mod_indicator_width = -1;
 
 // Padding added around a key's text label.
 #define OSK_KEY_PAD_X 8
+#define OSK_KEY_PAD_Y 2
+
+// {SHIFT_S} / {SPACE_S} labels (U+21E7 ⇧, U+2423 ␣). Drawn by hand because
+// the bundled Martian font does not include these glyphs.
+#define OSK_SYM_SHIFT "\xE2\x87\xA7"
+#define OSK_SYM_SPACE "\xE2\x90\xA3"
+
+static bool label_is_shift_symbol(const char* label)
+{
+    return label && strcmp(label, OSK_SYM_SHIFT) == 0;
+}
+
+static bool label_is_space_symbol(const char* label)
+{
+    return label && strcmp(label, OSK_SYM_SPACE) == 0;
+}
 
 // Measure the pixel width of a single key label.
 static int measure_key_width(TTF_Font* font, const char* label)
 {
+    if (label_is_shift_symbol(label) || label_is_space_symbol(label)) {
+        int w = 0;
+        TTF_SizeUTF8(font, "W", &w, NULL);
+        if (w < 1) w = 12;
+        return w + OSK_KEY_PAD_X * 2;
+    }
     int w = 0;
     TTF_SizeUTF8(font, label ? label : "", &w, NULL);
     return w + OSK_KEY_PAD_X * 2;
 }
 
+static int max_int(int a, int b) { return a > b ? a : b; }
+static int min_int(int a, int b) { return a < b ? a : b; }
+
+static void draw_shift_symbol(SDL_Renderer* renderer, SDL_Rect key_rect)
+{
+    int pad = max_int(2, min_int(key_rect.w, key_rect.h) / 6);
+    int x = key_rect.x + pad;
+    int y = key_rect.y + pad;
+    int w = key_rect.w - pad * 2;
+    int h = key_rect.h - pad * 2;
+    if (w < 4 || h < 4) return;
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    int mid_x = x + w / 2;
+    int head_h = max_int(3, (h * 55) / 100);
+    for (int row = 0; row < head_h; row++) {
+        int half = (row * (w / 2)) / head_h;
+        SDL_Rect line = {mid_x - half, y + row, half * 2 + 1, 1};
+        SDL_RenderFillRect(renderer, &line);
+    }
+    int stem_w = max_int(2, w / 4);
+    int stem_x = mid_x - stem_w / 2;
+    int stem_y = y + (head_h * 70) / 100;
+    SDL_Rect stem = {stem_x, stem_y, stem_w, y + h - stem_y};
+    if (stem.h > 0) SDL_RenderFillRect(renderer, &stem);
+}
+
+static void draw_space_symbol(SDL_Renderer* renderer, SDL_Rect key_rect)
+{
+    int pad = max_int(2, min_int(key_rect.w, key_rect.h) / 5);
+    int x = key_rect.x + pad;
+    int y = key_rect.y + pad + key_rect.h / 8;
+    int w = key_rect.w - pad * 2;
+    int h = key_rect.h - pad * 2 - key_rect.h / 8;
+    if (w < 4 || h < 4) return;
+
+    int t = max_int(2, min_int(w, h) / 8);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_Rect left = {x, y, t, h};
+    SDL_Rect bottom = {x, y + h - t, w, t};
+    SDL_Rect right = {x + w - t, y, t, h};
+    SDL_RenderFillRect(renderer, &left);
+    SDL_RenderFillRect(renderer, &bottom);
+    SDL_RenderFillRect(renderer, &right);
+}
+
 // Draw a single key (background, border, label) at the given x.
+// The box keeps its size; the label is scaled down (never stretched up)
+// so long words like "Shift" stay fully readable inside the cell.
 static void draw_key(SDL_Renderer* renderer, TTF_Font* font,
                      const char* label, int x, int osk_y, int w, int char_h,
                      bool selected, bool toggled, SDL_Color normal_color)
@@ -59,29 +129,84 @@ static void draw_key(SDL_Renderer* renderer, TTF_Font* font,
     SDL_bool was_clipping = SDL_RenderIsClipEnabled(renderer);
     SDL_RenderSetClipRect(renderer, &key_rect);
 
-    SDL_Color text_color = {255, 255, 255, 255};
-    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, label, text_color);
-    if (surface) {
-        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-        if (texture) {
-            int text_w = surface->w;
-            int text_h = surface->h;
-            SDL_Rect text_rect = {
-                x + (w - text_w) / 2,
-                osk_y + (char_h - text_h) / 2,
-                text_w,
-                text_h
-            };
-            SDL_RenderCopy(renderer, texture, NULL, &text_rect);
-            SDL_DestroyTexture(texture);
+    if (label_is_shift_symbol(label)) {
+        draw_shift_symbol(renderer, key_rect);
+    } else if (label_is_space_symbol(label)) {
+        draw_space_symbol(renderer, key_rect);
+    } else {
+        SDL_Color text_color = {255, 255, 255, 255};
+        SDL_Surface* surface = TTF_RenderUTF8_Blended(font, label, text_color);
+        if (surface) {
+            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+            if (texture) {
+                int text_w = surface->w;
+                int text_h = surface->h;
+                int inner_w = max_int(1, w - 4);
+                int inner_h = max_int(1, char_h - OSK_KEY_PAD_Y * 2);
+                int dst_w = text_w;
+                int dst_h = text_h;
+                if (text_w > inner_w || text_h > inner_h) {
+                    float sx = (float)inner_w / (float)max_int(1, text_w);
+                    float sy = (float)inner_h / (float)max_int(1, text_h);
+                    float scale = sx < sy ? sx : sy;
+                    if (scale < 1.0f) {
+                        dst_w = max_int(1, (int)(text_w * scale));
+                        dst_h = max_int(1, (int)(text_h * scale));
+                    }
+                }
+                SDL_Rect text_rect = {
+                    x + (w - dst_w) / 2,
+                    osk_y + (char_h - dst_h) / 2,
+                    dst_w,
+                    dst_h
+                };
+                SDL_RenderCopy(renderer, texture, NULL, &text_rect);
+                SDL_DestroyTexture(texture);
+            }
+            SDL_FreeSurface(surface);
         }
-        SDL_FreeSurface(surface);
     }
 
     if (was_clipping) {
         SDL_RenderSetClipRect(renderer, &prev_clip);
     } else {
         SDL_RenderSetClipRect(renderer, NULL);
+    }
+}
+
+// Size each key in a row from its label, then grow (or shrink) the set so
+// the row fills avail_w. Wider labels such as "Shift" keep a wider box.
+static void layout_row_widths(TTF_Font* font, const SpecialKey* keys, int count,
+                               int avail_w, int* widths)
+{
+    if (count <= 0 || !widths) return;
+
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        widths[i] = measure_key_width(font, keys[i].display_name);
+        if (widths[i] < 1) widths[i] = 1;
+        total += widths[i];
+    }
+    if (total < 1) total = 1;
+
+    if (total == avail_w) return;
+
+    if (total > avail_w) {
+        int used = 0;
+        for (int i = 0; i < count; i++) {
+            widths[i] = max_int(1, (int)(((long)widths[i] * avail_w) / total));
+            used += widths[i];
+        }
+        widths[count - 1] += avail_w - used;
+        if (widths[count - 1] < 1) widths[count - 1] = 1;
+        return;
+    }
+
+    int extra = avail_w - total;
+    int add = extra / count;
+    int rem = extra % count;
+    for (int i = 0; i < count; i++) {
+        widths[i] += add + (i < rem ? 1 : 0);
     }
 }
 
@@ -224,7 +349,14 @@ static void render_osk_grid(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyb
                             const Config* config)
 {
     int osk_alpha = config ? config->osk_alpha : 220;
-    int cell_h = (config && config->osk_bar_height > 0) ? config->osk_bar_height : char_h;
+    int font_h = TTF_FontHeight(font);
+    int min_cell_h = font_h + OSK_KEY_PAD_Y * 2;
+    int cell_h;
+    if (config && config->osk_bar_height > 0) {
+        cell_h = config->osk_bar_height;
+    } else {
+        cell_h = char_h > min_cell_h ? char_h : min_cell_h;
+    }
     const int pad = 4;
 
     char left_label[64] = {0};
@@ -295,27 +427,23 @@ static void render_osk_grid(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyb
         }
     } else {
         int num_rows = get_current_num_char_rows(osk);
-        int max_keys = 1;
-        for (int r = 0; r < num_rows; r++) {
-            const SpecialKeySet* row = osk_get_effective_row_ptr(osk, r);
-            if (row && row->num_keys > max_keys) max_keys = row->num_keys;
-        }
-        int cell_w = avail_w / max_keys;
-        if (cell_w < 1) cell_w = 1;
-
         for (int r = 0; r < num_rows; r++) {
             const SpecialKeySet* row = osk_get_effective_row_ptr(osk, r);
             if (!row || !row->keys || row->num_keys <= 0) continue;
-            int row_w = row->num_keys * cell_w;
-            int x0 = avail_left + (avail_w - row_w) / 2;
+            int* widths = calloc((size_t)row->num_keys, sizeof(int));
+            if (!widths) continue;
+            layout_row_widths(font, row->keys, row->num_keys, avail_w, widths);
             int y = keys_y + r * cell_h;
+            int x = avail_left;
             for (int i = 0; i < row->num_keys; i++) {
                 bool selected = (r == osk->current_char_row && i == osk->char_idx);
                 bool toggled = is_key_toggled(term, osk, &row->keys[i]);
                 draw_key(renderer, font, row->keys[i].display_name,
-                         x0 + i * cell_w, y, cell_w, cell_h,
+                         x, y, widths[i], cell_h,
                          selected, toggled, key_bg);
+                x += widths[i];
             }
+            free(widths);
         }
     }
 }
@@ -336,7 +464,14 @@ void render_osk(SDL_Renderer* renderer, TTF_Font* font, OnScreenKeyboard* osk, c
     }
 
     int osk_alpha = config ? config->osk_alpha : 220;
-    int bar_h = (config && config->osk_bar_height > 0) ? config->osk_bar_height : char_h;
+    int font_h = TTF_FontHeight(font);
+    int min_cell_h = font_h + OSK_KEY_PAD_Y * 2;
+    int bar_h;
+    if (config && config->osk_bar_height > 0) {
+        bar_h = config->osk_bar_height;
+    } else {
+        bar_h = char_h > min_cell_h ? char_h : min_cell_h;
+    }
 
     // Single centered line, anchored top or bottom per position_mode.
     int osk_y = get_osk_y_position(osk, term, win_h, bar_h);

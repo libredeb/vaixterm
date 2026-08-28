@@ -1,0 +1,15 @@
+[default]
+1234567890
+qwertyuiop
+asdfghjkl
+{SHIFT}zxcvbnm
+`,{SPACE}.:
+-=[]\;'*!/
+_+{}|&"<>?
+
+[shift]
+QWERTYUIOP
+ASDFGHJKL
+{SHIFT}ZXCVBNM
+~!@#$%^&*()
+{TAB}{HOME}{END}{LEFT}{DOWN}{UP}{RIGHT}{ENTER}

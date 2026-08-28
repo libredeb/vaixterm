@@ -25,6 +25,7 @@ const LayoutToken s_layout_tokens[] = {
     {"BACKSPACE", "Bksp", SK_SEQUENCE, SDLK_BACKSPACE},
     {"BS", "Bksp", SK_SEQUENCE, SDLK_BACKSPACE},
     {"SPACE", "Space", SK_STRING, SDLK_SPACE},
+    {"SPACE_S", "\xE2\x90\xA3", SK_STRING, SDLK_SPACE}, // ␣
     {"DEL", "Del", SK_SEQUENCE, SDLK_DELETE},
     {"DELETE", "Del", SK_SEQUENCE, SDLK_DELETE},
     {"HOME", "Home", SK_SEQUENCE, SDLK_HOME},
@@ -53,6 +54,7 @@ const LayoutToken s_layout_tokens[] = {
     {"F12", "F12", SK_SEQUENCE, SDLK_F12},
     {"CTRL", "Ctrl", SK_MOD_CTRL, SDLK_LCTRL},
     {"SHIFT", "Shift", SK_MOD_SHIFT, SDLK_LSHIFT},
+    {"SHIFT_S", "\xE2\x87\xA7", SK_MOD_SHIFT, SDLK_LSHIFT}, // ⇧
     {"ALT", "Alt", SK_MOD_ALT, SDLK_LALT},
     {"GUI", "Cmd", SK_MOD_GUI, SDLK_LGUI},
     {"N/A", NULL, SK_STRING, SDLK_UNKNOWN},
@@ -91,28 +93,36 @@ SpecialKeySet process_layout_line(const char* input)
         };
         bool key_created = false;
 
-        // 1. Try to match a sentinel token like {SHIFT}
+        // 1. Try to match a sentinel token like {SHIFT} (longest match wins,
+        // so {SHIFT_S} is not eaten by {SHIFT}).
         if (*p == '{') {
+            int best = -1;
+            size_t best_len = 0;
             for (int t = 0; t < s_num_layout_tokens; ++t) {
                 size_t token_len = strlen(s_layout_tokens[t].token);
                 if (strncmp(p + 1, s_layout_tokens[t].token, token_len) == 0 && p[1 + token_len] == '}') {
-                    // Placeholder tokens (N/A, DEFAULT) — skip without creating a key
-                    if (s_layout_tokens[t].display == NULL) {
-                        p += token_len + 2;
-                        break;
+                    if (token_len > best_len) {
+                        best = t;
+                        best_len = token_len;
                     }
-                    new_key.display_name = strdup(s_layout_tokens[t].display);
-                    new_key.type = s_layout_tokens[t].type;
-                    new_key.keycode = s_layout_tokens[t].keycode;
-
-                    if (new_key.type == SK_STRING) {
-                        new_key.sequence = strdup("");
-                    }
-
-                    p += token_len + 2; // skip '{' + token + '}'
-                    key_created = true;
-                    break;
                 }
+            }
+            if (best >= 0) {
+                // Placeholder tokens (N/A, DEFAULT) — skip without creating a key
+                if (s_layout_tokens[best].display == NULL) {
+                    p += best_len + 2;
+                    continue;
+                }
+                new_key.display_name = strdup(s_layout_tokens[best].display);
+                new_key.type = s_layout_tokens[best].type;
+                new_key.keycode = s_layout_tokens[best].keycode;
+
+                if (new_key.type == SK_STRING) {
+                    new_key.sequence = strdup("");
+                }
+
+                p += best_len + 2; // skip '{' + token + '}'
+                key_created = true;
             }
         }
 
